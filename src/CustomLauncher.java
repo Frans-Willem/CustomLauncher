@@ -104,12 +104,13 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 	
 	public void startApplet() throws MalformedURLException, ClassNotFoundException, IllegalArgumentException, IllegalAccessException, InstantiationException, SecurityException, NoSuchMethodException, InvocationTargetException {
 		ClassLoader loader=CustomLauncher.class.getClassLoader();
-		if (loader instanceof URLClassLoader) {
-			URLClassLoader ul=(URLClassLoader)loader;
-			System.out.println("URLs: ");
-			for (URL u : ul.getURLs()) {
-				System.out.println(u.getFile());
-			}
+		CustomClassLoader cl=null;
+		if (loader instanceof CustomClassLoader) {
+			System.out.println("Re-using CustomClassLoader");
+			cl=(CustomClassLoader)loader;
+		} else {
+			System.out.println("Creating new CustomClassLoader");
+			cl=new CustomClassLoader(new URL[0],loader);
 		}
 		//File fileMe=new File(CustomLauncher.class.getProtectionDomain().getCodeSource().getLocation().getPath());
 		File fileDir=getClassDirectory();
@@ -136,8 +137,10 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 		
 		System.setProperty("org.lwjgl.librarypath",fileDirNatives.getAbsolutePath());
 		System.setProperty("net.java.games.input.librarypath",fileDirNatives.getAbsolutePath());
+		
+		for (URL u : arrUrls)
+			cl.addURL(u);
 
-		ClassLoader cl=new CustomClassLoader(arrUrls.toArray(new URL[arrUrls.size()]),this.getClass().getClassLoader());
 		Class classMinecraft=cl.loadClass("net.minecraft.client.Minecraft");
 		for (Field f : classMinecraft.getDeclaredFields()) {
 			if (f.getType() == File.class && Modifier.isStatic(f.getModifiers())) {
@@ -158,7 +161,7 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 		this.setTitle("Minecraft");
 	}
 	
-	public static void main(String[] args) {
+	public static void post_patch_main(String[] args) {
 		try {
 	      UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
 	    }

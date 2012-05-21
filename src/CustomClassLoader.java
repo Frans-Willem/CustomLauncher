@@ -13,11 +13,13 @@ import java.util.HashSet;
 
 public class CustomClassLoader extends URLClassLoader {
 	Set<URL> setUrls;
+	Set<String> setRewriteSources;
 	CustomClassLoader(URL[] a, ClassLoader p) {
 		super(a,p);
 		setUrls=new HashSet<URL>();
 		for (URL u : a)
 			setUrls.add(u);
+		setRewriteSources=new HashSet<String>();
 	}
 	@Override
 	protected void addURL(URL url) {
@@ -32,17 +34,27 @@ public class CustomClassLoader extends URLClassLoader {
 		Class<?> ret = findLoadedClass(name);
 		if (ret!=null)
 			return ret;
-		//Maybe it's a system class?
-		try {
-			ret=findSystemClass(name);
-			if (ret!=null)
-				return ret;
-		}
-		catch (ClassNotFoundException e) {
-			ret=null;
-		}
+		//Locate the class
 		String strClassfile=name.replace('.','/')+".class";
 		URL urlResource=getResource(strClassfile);
+		//Is it in the list of sources that are forced to be rewritten?
+		boolean bForceRewrite=false;
+		if (urlResource!=null) {
+			for (String s : setRewriteSources)
+				if (urlResource.toString().startsWith(s))
+					bForceRewrite=true;
+		}
+		if (!bForceRewrite) {
+			//Maybe it's a system class?
+			try {
+				ret=findSystemClass(name);
+				if (ret!=null)
+					return ret;
+			}
+			catch (ClassNotFoundException e) {
+				ret=null;
+			}
+		}
 		InputStream is=this.getResourceAsStream(strClassfile);
 		if (is==null || urlResource==null) {
 			//Not found in the classpath, pass it on to URLClassLoader or further down the chain, maybe that classloader knows what to do.
@@ -93,5 +105,15 @@ public class CustomClassLoader extends URLClassLoader {
 				definePackage(strPackage,"","","","","","",null);
 		}
 		return this.defineClass(null,bBuffer, 0, bBuffer.length,protectionDomain);
+	}
+	
+	public void addRewriteClass(String name) {
+		String strClassfile=name.replace('.','/')+".class";
+		URL urlResource=getResource(strClassfile);
+		if (urlResource==null)
+			return;
+		String strResource=urlResource.toString();
+		strResource=strResource.substring(0,strResource.length()-strClassfile.length());
+		setRewriteSources.add(strResource);
 	}
 }
