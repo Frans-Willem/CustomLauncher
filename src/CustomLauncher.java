@@ -98,6 +98,10 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 		validate();
 	}
 	
+	private Component getShownComponent() {
+		return panelMain.getComponent(0);
+	}
+	
 	public void startApplet() throws MalformedURLException, ClassNotFoundException, IllegalArgumentException, IllegalAccessException, InstantiationException, SecurityException, NoSuchMethodException, InvocationTargetException {
 		ClassLoader loader=CustomLauncher.class.getClassLoader();
 		if (loader instanceof URLClassLoader) {
@@ -178,7 +182,35 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 
 	@Override
 	public void windowClosing(WindowEvent e) {
-		System.out.println("windowClosing");
+		Thread timeout=new Thread() {
+			public void run() {
+				try {
+					Thread.sleep(30000);
+				}
+				catch (InterruptedException e) {
+					//e.printStackTrace();
+				}
+				System.out.println("Exiting");
+				System.exit(0);
+			}
+		};
+		timeout.start();
+		Component cmp=getShownComponent();
+		if (cmp instanceof Applet) {
+			System.out.println("Closing Applet");
+			Applet a=(Applet)cmp;
+			a.stop();
+			a.destroy();
+		}
+		System.out.println("Clean exit");
+		timeout.interrupt();
+		try {
+			timeout.join();
+		}
+		catch (InterruptedException ie) {
+			
+		}
+		System.out.println("Exiting from main thread");
 		System.exit(0);
 	}
 
