@@ -139,7 +139,7 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 		System.setProperty("net.java.games.input.librarypath",fileDirNatives.getAbsolutePath());
 		
 		for (URL u : arrUrls)
-			cl.addURL(u);
+			cl.publicAddURL(u);
 
 		Class classMinecraft=cl.loadClass("net.minecraft.client.Minecraft");
 		for (Field f : classMinecraft.getDeclaredFields()) {

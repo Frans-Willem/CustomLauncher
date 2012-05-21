@@ -7,19 +7,30 @@ import java.net.URLClassLoader;
 import java.security.CodeSigner;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
+
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.ClassWriter;
 
 
 public class CustomClassLoader extends URLClassLoader {
 	Set<URL> setUrls;
 	Set<String> setRewriteSources;
+	Set<String> setNoRewriteSources;
+	List<CustomPatch> listPatches;
+	
 	CustomClassLoader(URL[] a, ClassLoader p) {
 		super(a,p);
 		setUrls=new HashSet<URL>();
 		for (URL u : a)
 			setUrls.add(u);
 		setRewriteSources=new HashSet<String>();
+		setNoRewriteSources=new HashSet<String>();
+		listPatches=new LinkedList<CustomPatch>();
 	}
 	@Override
 	protected void addURL(URL url) {
@@ -28,8 +39,16 @@ public class CustomClassLoader extends URLClassLoader {
 			super.addURL(url);
 		}
 	}
+	//To allow addURL to be called from outside this package
+	//e.g. classes loaded through this classloader have this as classloader, while this classloader has another.
+	public void publicAddURL(URL url) {
+		addURL(url);
+	}
 	@Override
 	protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+		//Self reference, so classes loaded by this classloader can actually access this classloader
+		if (name.equals("CustomClassLoader"))
+			return CustomClassLoader.class;
 		//Is the class already loaded?
 		Class<?> ret = findLoadedClass(name);
 		if (ret!=null)
@@ -39,10 +58,14 @@ public class CustomClassLoader extends URLClassLoader {
 		URL urlResource=getResource(strClassfile);
 		//Is it in the list of sources that are forced to be rewritten?
 		boolean bForceRewrite=false;
+		boolean bPreventRewrite=false;
 		if (urlResource!=null) {
 			for (String s : setRewriteSources)
 				if (urlResource.toString().startsWith(s))
 					bForceRewrite=true;
+			for (String s : setNoRewriteSources)
+				if (urlResource.toString().startsWith(s))
+					bPreventRewrite=true;
 		}
 		if (!bForceRewrite) {
 			//Maybe it's a system class?
@@ -104,6 +127,17 @@ public class CustomClassLoader extends URLClassLoader {
 			if (getPackage(strPackage)==null)
 				definePackage(strPackage,"","","","","","",null);
 		}
+		if (!bPreventRewrite) {
+			ClassReader cr=new ClassReader(bBuffer);
+			ClassWriter cw=new ClassWriter(cr,0);
+			ClassVisitor cv=cw;
+			for (CustomPatch p : listPatches) {
+				cv=p.create(cv);
+			}
+			cr.accept(cv, 0);
+			bBuffer=cw.toByteArray();
+		}
+		
 		return this.defineClass(null,bBuffer, 0, bBuffer.length,protectionDomain);
 	}
 	
@@ -115,5 +149,20 @@ public class CustomClassLoader extends URLClassLoader {
 		String strResource=urlResource.toString();
 		strResource=strResource.substring(0,strResource.length()-strClassfile.length());
 		setRewriteSources.add(strResource);
+	}
+	
+	public void addNoRewriteClass(String name) {
+		String strClassfile=name.replace('.','/')+".class";
+		URL urlResource=getResource(strClassfile);
+		if (urlResource==null)
+			return;
+		String strResource=urlResource.toString();
+		strResource=strResource.substring(0,strResource.length()-strClassfile.length());
+		setNoRewriteSources.add(strResource);
+	}
+	
+	public void addPatch(CustomPatch p) {
+		if (p!=null)
+			listPatches.add(p);
 	}
 }
