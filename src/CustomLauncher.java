@@ -2,17 +2,35 @@ import java.applet.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.*;
 import java.net.*;
 import java.security.CodeSigner;
 import java.security.CodeSource;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.security.ProtectionDomain;
 import java.util.*;
 import java.security.cert.Certificate;
+import java.security.spec.InvalidKeySpecException;
 import java.security.PublicKey;
+
+import javax.crypto.Cipher;
+import javax.crypto.CipherInputStream;
+import javax.crypto.CipherOutputStream;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.PBEParameterSpec;
 import javax.net.ssl.HttpsURLConnection;
 import javax.swing.JPanel;
 import javax.swing.UIManager;
@@ -25,6 +43,15 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 	private WaitComponent cmpWait;
 	private LoginHandler handlerLogin;
 	private Map<String,String> mapAppletParameters;
+	private String strSavedUsername;
+	private String strSavedPassword;
+	private boolean bRemember;
+	
+	private static File getClassDirectory() {
+		File fileMe=new File(CustomLauncher.class.getProtectionDomain().getCodeSource().getLocation().getPath());
+		File fileDir=fileMe.getParentFile();
+		return fileDir;
+	}
 	
 	public CustomLauncher() {
 		super("Custom Minecraft Launcher");
@@ -42,6 +69,18 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 		cmpWait.setAlignment(Label.CENTER);
 		
 		setShownComponent(panelLoginPanel);
+		
+		strSavedUsername=strSavedPassword="";
+		bRemember=false;
+		try {
+			readLoginInfo();
+		}
+		catch (Exception e) {
+			e.printStackTrace();
+		}
+		panelLoginPanel.setUsername(strSavedUsername);
+		panelLoginPanel.setPassword(strSavedPassword);
+		panelLoginPanel.setRemember(!strSavedPassword.equals(""));
 		
 		handlerLogin=null;
 		mapAppletParameters=new TreeMap<String,String>();
@@ -68,8 +107,8 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 				System.out.println(u.getFile());
 			}
 		}
-		File fileMe=new File(CustomLauncher.class.getProtectionDomain().getCodeSource().getLocation().getPath());
-		File fileDir=fileMe.getParentFile();
+		//File fileMe=new File(CustomLauncher.class.getProtectionDomain().getCodeSource().getLocation().getPath());
+		File fileDir=getClassDirectory();
 		File fileDirBin=new File(fileDir,"bin");
 		File fileDirMods=new File(fileDir,"mods");
 		File fileDirNatives=new File(fileDirBin,"natives");
@@ -204,6 +243,9 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 	public void loginRequested(String strUsername, String strPassword,
 			boolean bRemember) {
 			setShownComponent(cmpWait);
+			strSavedUsername=strUsername;
+			strSavedPassword=(bRemember?strPassword:"");
+			this.bRemember=bRemember;
 			cmpWait.start();
 			handlerLogin=new LoginHandler(strUsername,strPassword);
 			handlerLogin.addListener(this);
@@ -219,6 +261,16 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 		} else {
 			//panelLoginPanel.setError("Session ID: "+handlerLogin.getSessionId());
 			//setShownComponent(panelLoginPanel);
+			String strUsername=handlerLogin.getUsername();
+			//If it's only a recapitalization, save it.
+			if (strSavedUsername.length()==strUsername.length())
+				strSavedUsername=strUsername;
+			try {
+				writeLoginInfo();
+			}
+			catch(Exception e) {
+				e.printStackTrace();
+			}
 			mapAppletParameters.put("username", handlerLogin.getUsername());
 			mapAppletParameters.put("sessionid", handlerLogin.getSessionId());
 			try {
@@ -230,5 +282,69 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 				setShownComponent(panelLoginPanel);
 			}
 		}
+	}
+
+	@Override
+	public void loginForgetRequested() {
+		strSavedPassword="";
+		bRemember=false;
+		try {
+			writeLoginInfo();
+		}
+		catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+	
+	private static Cipher getCipher(int mode, String password) throws InvalidKeySpecException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException  {
+		Random r=new Random(43287234L);
+		byte[] salt=new byte[8];
+		r.nextBytes(salt);
+		PBEParameterSpec pbeParamSpec = new PBEParameterSpec(salt, 5);
+
+	    SecretKey pbeKey = SecretKeyFactory.getInstance("PBEWithMD5AndDES").generateSecret(new PBEKeySpec(password.toCharArray()));
+	    Cipher cipher = Cipher.getInstance("PBEWithMD5AndDES");
+	    cipher.init(mode, pbeKey, pbeParamSpec);
+	    return cipher;
+	}
+	
+	private void writeLoginInfo() throws IOException {
+		File lastLogin=new File(getClassDirectory(),"lastlogin");
+		Cipher cipher=null;
+		try {
+			cipher=getCipher(Cipher.ENCRYPT_MODE,"passwordfile");
+		}
+		catch (Exception e) {
+			cipher=null;
+		}
+		DataOutputStream dos;
+		if (cipher!=null)
+			dos=new DataOutputStream(new CipherOutputStream(new FileOutputStream(lastLogin),cipher));
+		else
+			dos=new DataOutputStream(new FileOutputStream(lastLogin));
+		dos.writeUTF(strSavedUsername);
+		dos.writeUTF(bRemember?strSavedPassword:"");
+		dos.flush();
+		dos.close();
+	}
+	
+	private void readLoginInfo() throws IOException {
+		File lastLogin=new File(getClassDirectory(),"lastlogin");
+		Cipher cipher=null;
+		try {
+			cipher=getCipher(Cipher.DECRYPT_MODE,"passwordfile");
+		}
+		catch (Exception e) {
+			cipher=null;
+		}
+		DataInputStream dis;
+		if (cipher!=null)
+			dis=new DataInputStream(new CipherInputStream(new FileInputStream(lastLogin),cipher));
+		else
+			dis=new DataInputStream(new FileInputStream(lastLogin));
+		strSavedUsername=dis.readUTF();
+		strSavedPassword=dis.readUTF();
+		bRemember=(strSavedPassword.equals(""));
+		dis.close();
 	}
 }

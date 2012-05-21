@@ -10,10 +10,12 @@ import java.awt.Panel;
 import java.awt.TextField;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
 import java.util.LinkedList;
 import java.util.List;
 
-public class LoginPanel extends Panel implements ActionListener {
+public class LoginPanel extends Panel implements ActionListener, ItemListener {
 	private TextField txtUsername;
 	private TextField txtPassword;
 	private Button btnLogin;
@@ -89,6 +91,7 @@ public class LoginPanel extends Panel implements ActionListener {
 		add(c);
 		
 		chkRemember=new Checkbox("Remember password");
+		chkRemember.addItemListener(this);
 		gbl.setConstraints(chkRemember,gbc);
 		add(chkRemember);
 		
@@ -139,5 +142,13 @@ public class LoginPanel extends Panel implements ActionListener {
 		if (strError!=null)
 			lblError.setText(strError);
 		lblError.setVisible(strError!=null);
+	}
+
+	@Override
+	public void itemStateChanged(ItemEvent event) {
+		if (event.getSource()==chkRemember && event.getStateChange()==ItemEvent.DESELECTED) {
+			for (LoginPanelListener l : listListeners)
+				l.loginForgetRequested();
+		}
 	}
 }
