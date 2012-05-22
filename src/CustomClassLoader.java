@@ -20,7 +20,6 @@ import org.objectweb.asm.ClassWriter;
 public class CustomClassLoader extends URLClassLoader {
 	Set<URL> setUrls;
 	Set<String> setRewriteSources;
-	Set<String> setNoRewriteSources;
 	List<CustomPatch> listPatches;
 	
 	CustomClassLoader(URL[] a, ClassLoader p) {
@@ -29,7 +28,6 @@ public class CustomClassLoader extends URLClassLoader {
 		for (URL u : a)
 			setUrls.add(u);
 		setRewriteSources=new HashSet<String>();
-		setNoRewriteSources=new HashSet<String>();
 		listPatches=new LinkedList<CustomPatch>();
 	}
 	@Override
@@ -58,14 +56,10 @@ public class CustomClassLoader extends URLClassLoader {
 		URL urlResource=getResource(strClassfile);
 		//Is it in the list of sources that are forced to be rewritten?
 		boolean bForceRewrite=false;
-		boolean bPreventRewrite=false;
 		if (urlResource!=null) {
 			for (String s : setRewriteSources)
 				if (urlResource.toString().startsWith(s))
 					bForceRewrite=true;
-			for (String s : setNoRewriteSources)
-				if (urlResource.toString().startsWith(s))
-					bPreventRewrite=true;
 		}
 		if (!bForceRewrite) {
 			//Maybe it's a system class?
@@ -76,6 +70,17 @@ public class CustomClassLoader extends URLClassLoader {
 			}
 			catch (ClassNotFoundException e) {
 				ret=null;
+			}
+			//In one of the patches?
+			for (CustomPatch p : listPatches) {
+				try {
+					ret=p.getClass().getClassLoader().loadClass(name);
+					if (ret!=null)
+						return ret;
+				}
+				catch (ClassNotFoundException e) {
+					ret=null;
+				}
 			}
 		}
 		InputStream is=this.getResourceAsStream(strClassfile);
@@ -127,17 +132,15 @@ public class CustomClassLoader extends URLClassLoader {
 			if (getPackage(strPackage)==null)
 				definePackage(strPackage,"","","","","","",null);
 		}
-		if (!bPreventRewrite) {
-			ClassReader cr=new ClassReader(bBuffer);
-			ClassWriter cw=new ClassWriter(cr,0);
-			ClassVisitor cv=cw;
-			for (CustomPatch p : listPatches) {
-				cv=p.create(cv);
-			}
-			cr.accept(cv, 0);
-			bBuffer=cw.toByteArray();
-		}
 		
+		ClassReader cr=new ClassReader(bBuffer);
+		ClassWriter cw=new ClassWriter(cr,0);
+		ClassVisitor cv=cw;
+		for (CustomPatch p : listPatches) {
+			cv=p.create(cv);
+		}
+		cr.accept(cv, 0);
+		bBuffer=cw.toByteArray();
 		return this.defineClass(null,bBuffer, 0, bBuffer.length,protectionDomain);
 	}
 	
@@ -149,16 +152,6 @@ public class CustomClassLoader extends URLClassLoader {
 		String strResource=urlResource.toString();
 		strResource=strResource.substring(0,strResource.length()-strClassfile.length());
 		setRewriteSources.add(strResource);
-	}
-	
-	public void addNoRewriteClass(String name) {
-		String strClassfile=name.replace('.','/')+".class";
-		URL urlResource=getResource(strClassfile);
-		if (urlResource==null)
-			return;
-		String strResource=urlResource.toString();
-		strResource=strResource.substring(0,strResource.length()-strClassfile.length());
-		setNoRewriteSources.add(strResource);
 	}
 	
 	public void addPatch(CustomPatch p) {
