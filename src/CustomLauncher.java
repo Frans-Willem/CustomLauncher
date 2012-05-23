@@ -146,11 +146,13 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 					if (ename.startsWith("META-INF"))
 						continue;
 					Integer found=mapEntries.get(ename);
+					ZipEntry ecopy=(ZipEntry)e.clone();
+					ecopy.setCompressedSize(-1);
 					if (found==null) {
 						mapEntries.put(ename, new Integer(listEntries.size()));
-						listEntries.add(new CreateJarEntry(e,zip.getInputStream(e)));
+						listEntries.add(new CreateJarEntry(ecopy,zip.getInputStream(e)));
 					} else {
-						listEntries.set(found.intValue(), new CreateJarEntry(e,zip.getInputStream(e)));
+						listEntries.set(found.intValue(), new CreateJarEntry(ecopy,zip.getInputStream(e)));
 					}
 				}
 			} else {
