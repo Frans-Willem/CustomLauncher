@@ -19,6 +19,9 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.ProtectionDomain;
 import java.util.*;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 import java.security.cert.Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.security.PublicKey;
@@ -102,7 +105,79 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 		return panelMain.getComponent(0);
 	}
 	
-	public void startApplet() throws MalformedURLException, ClassNotFoundException, IllegalArgumentException, IllegalAccessException, InstantiationException, SecurityException, NoSuchMethodException, InvocationTargetException {
+	class CreateJarEntry {
+		public ZipEntry entry;
+		public InputStream stream;
+		public CreateJarEntry(ZipEntry e, InputStream s) {
+			entry=e;
+			stream=s;
+		}
+	}
+	
+	private File createTemporaryJar(File fileDirTemp, File[] arrSources) throws IOException {
+		File fileOutput=new File(fileDirTemp,"minecraft.generated.jar");
+		try {
+			if (!fileDirTemp.exists() || !fileDirTemp.isDirectory())
+				fileDirTemp.mkdirs();
+		}
+		catch (Exception e) {
+			fileDirTemp=null;
+		}
+		if (fileOutput==null || !fileDirTemp.canWrite() || (fileOutput.exists() && !fileOutput.canWrite()))
+			fileOutput=File.createTempFile("minecraft.generated.", ".jar");
+		fileOutput.deleteOnExit();
+		
+		LinkedList<ZipFile> listToClose=new LinkedList<ZipFile>();
+		ArrayList<CreateJarEntry> listEntries=new ArrayList<CreateJarEntry>();
+		Map<String,Integer> mapEntries=new TreeMap<String,Integer>();
+		
+		for (File f : arrSources) {
+			String name=f.getName();
+			if (f.isDirectory()) {
+				throw new IllegalArgumentException("Directory adding not implemented yet!");
+			} else if (name.endsWith(".jar") || name.endsWith(".zip")) {
+				ZipFile zip=new ZipFile(f);
+				listToClose.add(zip);
+				Enumeration<? extends ZipEntry> entries=zip.entries();
+				ZipEntry e;
+				while (entries.hasMoreElements()) {
+					e=entries.nextElement();
+					String ename=e.getName();
+					if (ename.startsWith("META-INF"))
+						continue;
+					Integer found=mapEntries.get(ename);
+					if (found==null) {
+						mapEntries.put(ename, new Integer(listEntries.size()));
+						listEntries.add(new CreateJarEntry(e,zip.getInputStream(e)));
+					} else {
+						listEntries.set(found.intValue(), new CreateJarEntry(e,zip.getInputStream(e)));
+					}
+				}
+			} else {
+				throw new IllegalArgumentException("Unknown file format for builtin");
+			}
+		}
+		
+		ZipOutputStream zip=new ZipOutputStream(new FileOutputStream(fileOutput));
+		for (CreateJarEntry e : listEntries) {
+			zip.putNextEntry(e.entry);
+			byte[] bBuffer=new byte[1024];
+			int nRead;
+			while ((nRead=e.stream.read(bBuffer))>=0) {
+				zip.write(bBuffer,0,nRead);
+			}
+			zip.closeEntry();
+		}
+		zip.finish();
+		zip.close();
+		
+		for (ZipFile z : listToClose)
+			z.close();
+		
+		return fileOutput;
+	}
+	
+	public void startApplet() throws ClassNotFoundException, IllegalArgumentException, IllegalAccessException, InstantiationException, SecurityException, NoSuchMethodException, InvocationTargetException, IOException {
 		ClassLoader loader=CustomLauncher.class.getClassLoader();
 		CustomClassLoader cl=null;
 		if (loader instanceof CustomClassLoader) {
@@ -115,25 +190,27 @@ public class CustomLauncher extends Frame implements WindowListener, AppletStub,
 		//File fileMe=new File(CustomLauncher.class.getProtectionDomain().getCodeSource().getLocation().getPath());
 		File fileDir=getClassDirectory();
 		File fileDirBin=new File(fileDir,"bin");
-		File fileDirMods=new File(fileDir,"mods");
+		File fileDirTemp=new File(fileDir,"temp");
+		File fileDirBuiltins=new File(fileDir,"builtins");
 		File fileDirNatives=new File(fileDirBin,"natives");
 		System.out.println(fileDirBin);
 		ArrayList<URL> arrUrls=new ArrayList<URL>();
 		
-		String[] arrBuiltinMods=fileDirMods.list();
-		if (arrBuiltinMods==null) arrBuiltinMods=new String[0];
-		Arrays.sort(arrBuiltinMods);
-		Utils.reverse(arrBuiltinMods);
+		File[] arrBuiltins=fileDirBuiltins.listFiles();
+		if (arrBuiltins==null) arrBuiltins=new File[0];
+		Arrays.sort(arrBuiltins);
 		
-		for (String s : arrBuiltinMods) {
-			if (s.startsWith("[builtin]"))
-			arrUrls.add(new File(fileDirMods,s).toURI().toURL());
-		}
+		File[] arrSources=new File[arrBuiltins.length+1];
+		arrSources[0]=new File(fileDirBin,"minecraft.jar");
+		System.arraycopy(arrBuiltins,0,arrSources,1,arrBuiltins.length);
+		
+		File fileMinecraft=createTemporaryJar(fileDirTemp,arrSources);
 		
 		arrUrls.add(new File(fileDirBin,"lwjgl.jar").toURI().toURL());
 		arrUrls.add(new File(fileDirBin,"jinput.jar").toURI().toURL());
 		arrUrls.add(new File(fileDirBin,"lwjgl_util.jar").toURI().toURL());
-		arrUrls.add(new File(fileDirBin,"minecraft.jar").toURI().toURL());
+		arrUrls.add(fileMinecraft.toURI().toURL());
+		//arrUrls.add(new File(fileDirBin,"minecraft.jar").toURI().toURL());
 		
 		System.setProperty("org.lwjgl.librarypath",fileDirNatives.getAbsolutePath());
 		System.setProperty("net.java.games.input.librarypath",fileDirNatives.getAbsolutePath());
